@@ -110,11 +110,20 @@ class TScopy( object ):
         self.config = { 'files': None,
                         'outputdir': None,
                         'debug': True,
-                        'ignore_table':None 
+                        'ignore_table':None
                       }
+        self.__pickle_fullpath = None
+        self.__pickle_filename = 'mft.pickle'
 
     def setConfig( self, config ):
-        self.config = config
+#        self.config = config
+        if config['is_dir'] == True:
+            self.setDirectory( config['files'] )
+        else:
+            self.config['files'] = config['files']
+        self.setDebug( config['debug'] )
+        self.setLookupTable( config['ignore_table'] )
+        self.setOutputDir( config['outputdir'] )
 
     def setDirectory( self, directory ):
         tmp_dir = directory
@@ -123,7 +132,7 @@ class TScopy( object ):
         if not os.path.isdir( args.directory ):
             print "Error directory (%s) not found" % tmp_dir
             parser.print_help()
-            sys.exit(1)
+            raise Exception( "TSCOPY", "Error directory (%s) not found" % tmp_dir)
         process_files = []
         for i in os.listdir( tmp_dir):
             if not os.path.isdir(  tmp_dir + os.sep + i ):
@@ -140,8 +149,9 @@ class TScopy( object ):
         if not os.path.isdir( directory ):
             logging.error("Error output destination (%s) not found" % directory)
             parser.print_help()
-            sys.exit(1)
-        self.config['outputdir'] = dirctory
+            raise Exception( "TSCOPY", "Error output destination (%s) not found" % directory)
+        self.config['outputdir'] = directory 
+        self.__pickle_fullpath = '%s%s%s' % ( directory, os.sep, self.__pickle_filename )
                 
     def __getMFT( self, index=0 ):
         fd = self.config['fd']
@@ -232,13 +242,13 @@ class TScopy( object ):
             ind = item.index('?')
             testRef = item[0:ind]   
             if not int(testRef) == target_seq_num:
-                logging.error("Error: The ref in the array did not match target ref.")
+                logging.debug("Error: The ref in the array did not match target ref.")
                 return None
             
             srecord3 = item[ind+1:]
             srecordArr = srecord3.split('|')
             if not len( srecordArr ) == 3:
-                logging.error("Error: Array contained more elements than expected: %d" % len( srecordArr ))
+                logging.debug("Error: Array contained more elements than expected: %d" % len( srecordArr ))
                 return None
 
             record = ""
@@ -322,7 +332,7 @@ class TScopy( object ):
                                 break
                             except:
 #                                traceback.print_exc()
-                                logging.error(traceback.format_exc())
+                                logging.debug(traceback.format_exc())
                                 pass
                             entry_offset += entry.entry_sz()
 
@@ -344,8 +354,6 @@ class TScopy( object ):
             for attribute in record.attributes():
                 if attribute.type() == ATTR_TYPE.DATA:
                     fullpath = self.config['outputdir'] + self.config['current_file']
-                    if self.config['is_dir'] == True:
-                        fullpath += os.sep + mft_file_object[1]
                     logging.debug( "GetFile:: fullpath %s" % fullpath )
                     logging.debug( "GetFile:: attributes %s" % attribute.get_all_string())
                     path = '\\'.join( fullpath.split('\\')[:-1])
@@ -353,35 +361,40 @@ class TScopy( object ):
                         os.makedirs( path )
                     fd2 = open( fullpath,'wb' )
                     
-                    logging.debug("non_resident %r" % attribute.non_resident() ) 
-                    if attribute.non_resident() == 0:
-                        fd2.write( attribute.value()) 
-                    else:
-                        cnt = 0
-                        padd = False
-                        for cluster_offset, length in attribute.runlist().runs():
-#                            logging.debug("GetFile:: cluster_offset( %08x ) lenght( %08x )  " % ( cluster_offset, length))
-                            read_sz = length * bpc 
-#                            logging.debug("readsize %08x cnt %08x init_sz %08x" % ( read_sz, cnt, attribute.initialized_size()))
-                            if read_sz + cnt > attribute.initialized_size():
-                                read_sz = attribute.initialized_size() - cnt
-                                padd = True
-#                            logging.debug("readsize %08x cnt %08x init_sz %08x" % ( read_sz, cnt, attribute.initialized_size()))
-                            offset=cluster_offset * bpc
-                            win32file.SetFilePointer( fd, offset, win32file.FILE_BEGIN)
-                            buf = win32file.ReadFile( fd, read_sz)[1]
-                            if attribute.data_size() < cnt + read_sz:
-                                read_sz = attribute.data_size()-cnt
-#                            cnt += length * bpc
-                            cnt += read_sz
-                            fd2.write(buf[:read_sz])
-                            if padd == True:
-                                padd_sz  = attribute.data_size() - attribute.initialized_size() 
-                                fd2.write( '\x00' * padd_sz )
-                                cnt += padd_sz
-                    fd2.close()
+                    try:
+                        logging.debug("non_resident %r" % attribute.non_resident() ) 
+                        if attribute.non_resident() == 0:
+                            fd2.write( attribute.value()) 
+                        else:
+                            cnt = 0
+                            padd = False
+                            for cluster_offset, length in attribute.runlist().runs():
+    #                            logging.debug("GetFile:: cluster_offset( %08x ) lenght( %08x )  " % ( cluster_offset, length))
+                                read_sz = length * bpc 
+    #                            logging.debug("readsize %08x cnt %08x init_sz %08x" % ( read_sz, cnt, attribute.initialized_size()))
+                                if read_sz + cnt > attribute.initialized_size():
+                                    read_sz = attribute.initialized_size() - cnt
+                                    padd = True
+    #                            logging.debug("readsize %08x cnt %08x init_sz %08x" % ( read_sz, cnt, attribute.initialized_size()))
+                                offset=cluster_offset * bpc
+                                win32file.SetFilePointer( fd, offset, win32file.FILE_BEGIN)
+                                buf = win32file.ReadFile( fd, read_sz)[1]
+                                if attribute.data_size() < cnt + read_sz:
+                                    read_sz = attribute.data_size()-cnt
+    #                            cnt += length * bpc
+                                cnt += read_sz
+                                fd2.write(buf[:read_sz])
+                                if padd == True:
+                                    padd_sz  = attribute.data_size() - attribute.initialized_size() 
+                                    fd2.write( '\x00' * padd_sz )
+                                    cnt += padd_sz
+                    except:
+                        logging.error('Failed to get file %s' % (mft_file_object[1] ) )
+                        logging.debug('Failed to get file %s\n%s' % (mft_file_object[1], traceback.format_exc() ))
+                    finally:
+                        fd2.close()
         except:
-            logging.error('Failed to get file %s\n%s' % (mft_file_object, traceback.format_exc() ))
+            logging.debug('Failed to get file %s\n%s' % (mft_file_object[1], traceback.format_exc() ))
         
     def __process_image( self, targetDrive ):
         #TODO:: Come back and add this section. It finds the ofsets for the volumen that I hardcoded
@@ -389,13 +402,13 @@ class TScopy( object ):
         pass
 
     def __getLookupTableFromDisk( self ):
-        if not os.path.isfile( 'mft.pickle' ):    
-            return {5:{'seq_num':5,'name':'','children':{}}}
-        with open('mft.pickle', 'rb') as fd:
+        if not os.path.isfile( self.__pickle_fullpath):
+            return {5:{'seq_num': 5, 'name':'','children':{}}}
+        with open( filename, 'rb') as fd:
             return pickle.loads( fd.read() )
         
     def __saveLookuptable( self, lookup_table ):
-        with open('mft.pickle', 'wb') as fd:
+        with open(self.__pickle_fullpath, 'wb') as fd:
             fd.write( pickle.dumps( lookup_table ))
 
     def __check_config( self ):
@@ -439,7 +452,7 @@ class TScopy( object ):
 
         for fname in self.config['files']:
             self.config['current_file'] = fname[2:] # strip the drive letter off the front
-            logging.info("Copying %s to %s" % (fname, self.config['outputdir']+self.config['current_file']))
+            logging.debug("Copying %s to %s" % (fname, self.config['outputdir']+self.config['current_file']))
             index = 5
 
             seq_path = [(index,None)]
@@ -470,13 +483,15 @@ class TScopy( object ):
                 if tmp_index == index:
                     logging.info("%s NOT FOUND" % fname)
                     break
-            if self.config['is_dir'] == True:
+#            if self.config['is_dir'] == True:
+            if os.path.isdir(fname ) == True:
                 logging.debug(seq_path[-1])
                 ret = self.__getChildIndex( seq_path[-1][0] )
                 for en in ret: 
                     if en[1].strip() == '' or en[0] == 0:
                         continue
-                    logging.info("\tCopying %s to %s" % (fname, self.config['outputdir']+self.config['current_file']+os.sep+en[1]))
+                    logging.debug("\tCopying %s to %s" % (fname+os.sep+en[1], self.config['outputdir']+self.config['current_file']+os.sep+en[1]))
+                    self.config['current_file'] = fname[2:]+os.sep+en[1] # strip the drive letter off the front
                     self.__getFile( [en[0]&0xffffffff, en[1]] )
             else:
                 self.__getFile( seq_path[-1] )
