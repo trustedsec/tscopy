@@ -12,7 +12,6 @@ from . import BinaryParser
 from BinaryParser import Block
 from BinaryParser import Nestable
 
-
 g_logger = logging.getLogger("ntfs.mft")
 
 
@@ -599,6 +598,32 @@ class StandardInformation(Block):
         except BinaryParser.OverrunBufferException:
             raise StandardInformationFieldDoesNotExist("USN")
 
+class Attribute_List(Block, Nestable):
+    def __init__(self, buf, offset, size, logger):
+        self.__list = []
+        csize = 0
+        while csize < size:
+            lEntry =  Attribute_List_Entry( buf[csize:], 0, logger ) 
+            self.__list.append( lEntry )
+            csize += lEntry.record_length()
+
+    def get( self ):
+        return self.__list
+
+class Attribute_List_Entry(Block, Nestable):
+    def __init__(self, buf, offset, logger):
+        super(Attribute_List_Entry, self).__init__(buf, offset)
+        self.declare_field("dword", "type", 0x0)
+        self.declare_field("word", "record_length", 0x4)
+        self.declare_field("byte", "nameLength", 0x6)
+        self.declare_field("byte", "offsetToName", 0x7)
+        self.declare_field("qword", "startVCN", 0x8)
+        self.declare_field("qword", "baseFileReference", 0x10)
+        self.declare_field("word", "attributeID", 0x18)
+        self.declare_field("wstring", "name", 0x1a, 2*self.nameLength())
+
+    def __len__(self):
+        return self.size()
 
 class FilenameAttribute(Block, Nestable):
     def __init__(self, buf, offset, parent):
@@ -763,10 +788,12 @@ class Runlist(Block):
 
 class ATTR_TYPE:
     STANDARD_INFORMATION = 0x10
+    ATTRIBUTE_LIST = 0x20
     FILENAME_INFORMATION = 0x30
     DATA = 0x80
     INDEX_ROOT = 0x90
     INDEX_ALLOCATION = 0xA0
+    UTILITY_STREAM = 0x100
 
 
 class Attribute(Block, Nestable):
@@ -947,7 +974,7 @@ class MFTRecord(FixupBlock):
         raise AttributeNotFoundError()
 
     def is_directory(self):
-        return self.flags() & MFT_RECORD_FLAGS.MFT_RECORD_IS_DIRECTORY
+        return (self.flags() & MFT_RECORD_FLAGS.MFT_RECORD_IS_DIRECTORY) == 2
 
     def is_active(self):
         return self.flags() & MFT_RECORD_FLAGS.MFT_RECORD_IN_USE
