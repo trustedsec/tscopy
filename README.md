@@ -1,5 +1,5 @@
 # TScopy
-~[TScopy Logo](/README_imgs/Blog_061120.png)
+![TScopy Logo](/README_imgs/Blog_061120.png)
 
 ## Introducing TScopy 
 It is a requirement during an Incident Response (IR) engagement to have the ability to analyze files on the filesystem. Sometimes these files are locked by the operating system (OS) because they are in use, which is particularly frustrating with event logs and registry hives. TScopy allows the user, who is running with administrator privileges, to access locked files by parsing out their raw location in the filesystem and copying them without asking the OS.
@@ -109,3 +109,7 @@ Please report bugs in the issues section of the GitHub page.
 - Changes: General comments have been added to the code
 - Changes: Input parameters have changed. Reduced the three(3) different options --file, --list, and --directory to --file.
 - Changes: Backend restructuring to support new features.
+
+## TODO:
+1) Add support for Alternate Data Streams (ADS)
+2) Verify support for non-ascii path characters
