@@ -106,6 +106,7 @@ Please report bugs in the issues section of the GitHub page.
 - Issue 5: Removed the hardcoded MFT size. MFT size determined by the Boot Sector
 - Issue 6: Converted the TScopy class into a singleton. This allows the class to be instantiated once and reuse the current MFT metadata object for all copies.
 - Issue 7: Attribute type ATTRIBUTE_LIST is now being handled.
+- Issue 9: Attrubute type ATTRIBUTE_LIST was not handled for files. THis caused a silent failure for files like SOFTWARE regestry hive.
 - Changes: General comments have been added to the code
 - Changes: Input parameters have changed. Reduced the three(3) different options --file, --list, and --directory to --file.
 - Changes: Backend restructuring to support new features.

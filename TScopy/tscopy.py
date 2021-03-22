@@ -319,9 +319,9 @@ class TScopy( object ):
     def __search_mft( self, table, tmp_path, seq_path ):
         for name in tmp_path:
             index = table['seq_num']
-            self.config['logger'].debug('Looking for (%s) MFT_INDEX(%016X)' % (name, index))
+#            self.config['logger'].debug('Looking for (%s) MFT_INDEX(%016X)' % (name, index))
             ret = self.__getChildIndex( index )
-            self.config['logger'].debug("childindex = %r" % len(ret) )
+#            self.config['logger'].debug("childindex = %r" % len(ret) )
             tmp_index = index
             for seq_num in ret:
                 c_index = seq_num & 0xffffffff
@@ -661,73 +661,121 @@ class TScopy( object ):
         return None
 
     ####################################################################################
+    #  __parse_attribute_data: Processes the files data sections and combines them to 
+    #            create the file.
+    #       attribute: The data attribute from the MFT record 
+    #       Returns the dat content 
+    ####################################################################################
+    def __parse_attribute_data( self, attribute ):
+        ret = ''
+        fd = self.config['fd']
+        bpc = self.config['bss'].bytes_per_cluster
+#        import pdb; pdf.set_trace()
+        try:
+            self.config['logger'].debug("non_resident %r" % attribute.non_resident() ) 
+            if attribute.non_resident() == 0:
+                return attribute.value() 
+            else:
+                cnt = 0
+                padd = False
+                for cluster_offset, length in attribute.runlist().runs():
+                    self.config['logger'].debug("GetFile:: cluster_offset( %08x ) lenght( %08x )  " % ( cluster_offset, length))
+                    read_sz = length * bpc 
+                    self.config['logger'].debug("readsize %08x cnt %08x init_sz %08x" % ( read_sz, cnt, attribute.initialized_size()))
+                    if read_sz + cnt > attribute.initialized_size():
+                        read_sz = attribute.initialized_size() - cnt
+                        padd = True
+                    if (read_sz % 0x1000) > 0:
+                        read_sz += 0x1000 - (read_sz%0x1000)
+                    offset=cluster_offset * bpc
+
+                    self.config['logger'].debug("readsize %08x cnt %08x init_sz %08x" % ( read_sz, cnt, attribute.initialized_size()))
+                    buf = self.__read( fd, offset, read_sz )
+
+                    if attribute.data_size() < cnt + read_sz:
+                        read_sz = attribute.data_size()-cnt
+                    cnt += read_sz
+                            
+                    ret += buf[:read_sz]
+                    if padd == True:
+                        padd_sz  = attribute.data_size() - attribute.initialized_size() 
+                        ret += '\x00' * padd_sz
+                        cnt += padd_sz
+                    if cnt > attribute.initialized_size():
+#                        self.config['logger'].debug("readsize %08x cnt %08x init_sz %08x" % ( read_sz, cnt, attribute.initialized_size()))
+                        break
+        except:
+#            self.config['logger'].error('Failed to get file %s' % (mft_file_object[1] ) )
+            self.config['logger'].error('Failed to get file %s\n%s' % (mft_file_object[1], traceback.format_exc() ))
+        finally:
+            return ret
+
+    ####################################################################################
+    # __parse_file_record: Given the sequence ID parse the contents of the file from the 
+    #           MFT and return as a string.
+    #       mft_file_seq_id: The sequence ID of the MFT record to return the data from
+    ####################################################################################
+    def __parse_file_record( self, mft_file_seq_id ):
+        self.config['logger'].debug("parse_fle_record 0x%8x" % mft_file_seq_id)
+        buf = self.__calcOffset( mft_file_seq_id )
+        if buf == None:
+            raise Exception("Failed to process mft_offset")
+
+        record = MFTRecord(buf, 0, None)
+        if record.is_directory():
+            return None
+        for attribute in record.attributes():
+            self.config['logger'].debug("Parsing Attribute 0x%2x" % attribute.type() )
+            if attribute.type() == ATTR_TYPE.ATTRIBUTE_LIST:
+                file_contents = ''
+                self.config['logger'].debug("ATTRIBUTE_LIST HAS BEEN FOUND getting the File 0x(%08x)!!!!" % mft_file_seq_id)
+                attr_list = Attribute_List(attribute.value(), 0, attribute.value_length(), self.config['logger'] )
+                a_list = []
+                for entry in attr_list.get():
+                    if entry.type() == ATTR_TYPE.DATA and not (entry.baseFileReference()&0xffffffff) == mft_file_seq_id:
+                        if not entry.baseFileReference() in a_list:
+                            a_list.append( entry.baseFileReference() & 0xffffffff   )
+                for next_index in a_list:
+                    if mft_file_seq_id == next_index:
+                        self.config['logger'].debug(hex_dump(attribute.value()[:attribute.value_length()]))
+                        continue
+                    # WARNING RECURSION
+                    tmp = self.__parse_file_record( next_index )
+                    if not tmp == None:
+                        file_contents += tmp
+                if not file_contents == '':
+                    return file_contents
+            elif attribute.type() == ATTR_TYPE.DATA:
+#                import pdb; pdb.set_trace()
+                return self.__parse_attribute_data( attribute )
+        return ''
+
+    ####################################################################################
     # __getFile: The required file was identified this function locates all the parts of 
     #           the file and writes them in order to the destination location
     #       mft_file_object:
     ####################################################################################
     def __getFile( self, mft_file_object ):
-        if self.__useWin32 == False:
-            return
-
-        fd = self.config['fd']
-        bpc = self.config['bss'].bytes_per_cluster
-
-        buf = self.__calcOffset( mft_file_object[0] )
-
-        if buf == None:
-            raise Exception("Failed to process mft_offset")
+        file_contents = ''
         try:
-            record = MFTRecord(buf, 0, None)
-            for attribute in record.attributes():
-                if attribute.type() == ATTR_TYPE.DATA:
-                    fullpath = self.config['outputbasedir'] + self.config['current_file']
-#                    self.config['logger'].debug( "GetFile:: fullpath %s" % fullpath )
-#                    self.config['logger'].debug( "GetFile:: attributes %s" % attribute.get_all_string())
-                    path = '\\'.join( fullpath.split('\\')[:-1])
-                    if not os.path.isdir( path ): 
-                        os.makedirs( path )
-                    fd2 = open( fullpath,'wb' )
-                    
-                    try:
-#                        self.config['logger'].debug("non_resident %r" % attribute.non_resident() ) 
-                        if attribute.non_resident() == 0:
-                            fd2.write( attribute.value()) 
-                        else:
-                            cnt = 0
-                            padd = False
-                            for cluster_offset, length in attribute.runlist().runs():
-#                                self.config['logger'].debug("GetFile:: cluster_offset( %08x ) lenght( %08x )  " % ( cluster_offset, length))
-                                read_sz = length * bpc 
-#                                self.config['logger'].debug("readsize %08x cnt %08x init_sz %08x" % ( read_sz, cnt, attribute.initialized_size()))
-                                if read_sz + cnt > attribute.initialized_size():
-                                    read_sz = attribute.initialized_size() - cnt
-                                    padd = True
-                                if (read_sz % 0x1000) > 0:
-                                    read_sz += 0x1000 - (read_sz%0x1000)
-                                offset=cluster_offset * bpc
-
-#                                self.config['logger'].debug("readsize %08x cnt %08x init_sz %08x" % ( read_sz, cnt, attribute.initialized_size()))
-                                buf = self.__read( fd, offset, read_sz )
-
-                                if attribute.data_size() < cnt + read_sz:
-                                    read_sz = attribute.data_size()-cnt
-                                cnt += read_sz
-                                        
-                                fd2.write(buf[:read_sz])
-                                if padd == True:
-                                    padd_sz  = attribute.data_size() - attribute.initialized_size() 
-                                    fd2.write( '\x00' * padd_sz )
-                                    cnt += padd_sz
-                                if cnt > attribute.initialized_size():
-#                                    self.config['logger'].debug("readsize %08x cnt %08x init_sz %08x" % ( read_sz, cnt, attribute.initialized_size()))
-                                    break
-                    except:
-#                        self.config['logger'].error('Failed to get file %s' % (mft_file_object[1] ) )
-                        self.config['logger'].error('Failed to get file %s\n%s' % (mft_file_object[1], traceback.format_exc() ))
-                    finally:
-                        fd2.close()
+            file_contents = self.__parse_file_record( mft_file_object[0] )
+            if file_contents == None:
+                return
         except:
             self.config['logger'].error('Failed to get file %s\n%s' % (mft_file_object[1], traceback.format_exc() ))
+
+#        if not file_contents == '':
+        try:
+            fullpath = self.config['outputbasedir'] + self.config['current_file']
+    #        self.config['logger'].debug( "GetFile:: fullpath %s" % fullpath )
+    #        self.config['logger'].debug( "GetFile:: attributes %s" % attribute.get_all_string())
+            path = '\\'.join( fullpath.split('\\')[:-1])
+            if not os.path.isdir( path ): 
+                os.makedirs( path )
+            fd2 = open( fullpath,'wb' )
+            fd2.write( file_contents )
+        except:
+            self.config['logger'].error('Failed to write file %s\n%s' % (mft_file_object[1], traceback.format_exc() ))
 
     ####################################################################################
     # __open: Wrapper around win32file createfile. 
