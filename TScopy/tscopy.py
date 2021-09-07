@@ -708,7 +708,10 @@ class TScopy( object ):
 #            self.config['logger'].error('Failed to get file %s' % (mft_file_object[1] ) )
             self.config['logger'].error('Failed to get file %s\n%s' % (mft_file_object[1], traceback.format_exc() ))
         finally:
-            return ret
+            name = ''
+            if attribute.name_length() > 0:
+                name = attribute.name()
+            return [ name, ret ]
 
     ####################################################################################
     # __parse_file_record: Given the sequence ID parse the contents of the file from the 
@@ -724,6 +727,8 @@ class TScopy( object ):
         record = MFTRecord(buf, 0, None)
         if record.is_directory():
             return None
+
+        ret_val = {}
         for attribute in record.attributes():
             self.config['logger'].debug("Parsing Attribute 0x%2x" % attribute.type() )
             if attribute.type() == ATTR_TYPE.ATTRIBUTE_LIST:
@@ -741,13 +746,20 @@ class TScopy( object ):
                         continue
                     # WARNING RECURSION
                     tmp = self.__parse_file_record( next_index )
-                    if not tmp == None:
+                    if tmp == None:
+                        continue
+                    elif type(tmp) == str:
                         file_contents += tmp
+                    elif '' in tmp: 
+                        file_contents += tmp['']
                 if not file_contents == '':
                     return file_contents
             elif attribute.type() == ATTR_TYPE.DATA:
 #                import pdb; pdb.set_trace()
-                return self.__parse_attribute_data( attribute )
+                tmp = self.__parse_attribute_data( attribute ) 
+                ret_val[tmp[0]] = tmp[1] 
+        if len( ret_val ) > 0:
+            return ret_val
         return ''
 
     ####################################################################################
@@ -761,21 +773,26 @@ class TScopy( object ):
             file_contents = self.__parse_file_record( mft_file_object[0] )
             if file_contents == None:
                 return
+            if type( file_contents ) == str:
+                file_contents = { '': file_contents }
         except:
             self.config['logger'].error('Failed to get file %s\n%s' % (mft_file_object[1], traceback.format_exc() ))
 
 #        if not file_contents == '':
-        try:
-            fullpath = self.config['outputbasedir'] + self.config['current_file']
-    #        self.config['logger'].debug( "GetFile:: fullpath %s" % fullpath )
-    #        self.config['logger'].debug( "GetFile:: attributes %s" % attribute.get_all_string())
-            path = '\\'.join( fullpath.split('\\')[:-1])
-            if not os.path.isdir( path ): 
-                os.makedirs( path )
-            fd2 = open( fullpath,'wb' )
-            fd2.write( file_contents )
-        except:
-            self.config['logger'].error('Failed to write file %s\n%s' % (mft_file_object[1], traceback.format_exc() ))
+        for stream in file_contents:
+            try:
+                fullpath = self.config['outputbasedir'] + self.config['current_file']
+        #        self.config['logger'].debug( "GetFile:: fullpath %s" % fullpath )
+        #        self.config['logger'].debug( "GetFile:: attributes %s" % attribute.get_all_string())
+                path = '\\'.join( fullpath.split('\\')[:-1])
+                if not os.path.isdir( path ): 
+                    os.makedirs( path )
+                if not stream == '':
+                    fullpath += "_ADS_%s" % stream 
+                fd2 = open( fullpath,'wb' )
+                fd2.write( file_contents[stream] )
+            except:
+                self.config['logger'].error('Failed to write file %s\n%s' % (mft_file_object[1], traceback.format_exc() ))
 
     ####################################################################################
     # __open: Wrapper around win32file createfile. 
@@ -809,11 +826,21 @@ class TScopy( object ):
                 fd.seek( offset, 0)
                 buf = fd.read( read_sz )
             else:
-                win32file.SetFilePointer( fd, offset, win32file.FILE_BEGIN)
-                buf = win32file.ReadFile( fd, read_sz)[1]
+                if read_sz > 0x10000000:
+                    tmp_read_sz = 0
+                    read_step = 0x01500000
+                    buf = ''
+                    while tmp_read_sz <= read_sz:
+                        win32file.SetFilePointer( fd, offset + tmp_read_sz, win32file.FILE_BEGIN)
+                        buf += win32file.ReadFile( fd, read_step)[1]
+                        tmp_read_sz += read_step
+                else:
+                    win32file.SetFilePointer( fd, offset, win32file.FILE_BEGIN)
+                    buf = win32file.ReadFile( fd, read_sz)[1]
         except:
             self.config['logger'].error( traceback.format_exc())
             self.config['logger'].debug("offset(%08x), readsize (%08x) fd (%08x)" % ( offset, read_sz, fd))
+            self.config['logger'].debug("stack %s" % traceback.print_stack() )
         return buf
         
     ####################################################################################
