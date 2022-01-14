@@ -13,6 +13,7 @@ import os
 import argparse
 import traceback
 import time
+import ctypes
 
 from TScopy.tscopy import TScopy
 
@@ -23,6 +24,14 @@ handler.setLevel(logging.DEBUG)
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 handler.setFormatter(formatter)
 log.addHandler(handler)
+
+def check_administrative_rights( ):
+    if ctypes.windll.shell32.IsUserAnAdmin() == 0:
+        log.info("TrustedIR Collector must run with administrative privileges")
+        print "ERROR: TrustedIR Collector must run with administrative privileges\nPress ENTER to finish..."
+        sys.stdin.readline()
+        return False
+    return True
 
 def parseArgs():
     parser = argparse.ArgumentParser( description="Copy protected files by parsing the MFT. Must be run with Administrator privileges", usage="""\
@@ -61,7 +70,7 @@ def parseArgs():
             tmp_dir = tmp_dir[:-1]
 
         if not os.path.isdir( tmp_dir ):
-            log.error("\nError output destination (%s) not found\n\n" %tmp_dir )
+            log.error("Error output destination (%s) not found\n\n" %tmp_dir )
             parser.print_help()
             sys.exit(1)
         args.outputdir = tmp_dir
@@ -75,6 +84,8 @@ def parseArgs():
 if __name__ == '__main__':
     start = time.time()    
     args = parseArgs()
+    if check_administrative_rights( )  == False:
+        sys.exit(1)
 
     config = {
                'pickledir': args['outputbasedir'],

@@ -432,8 +432,9 @@ class TScopy( object ):
             else:
                 targetDrive = filename[:6]
             
-            driveLetter = targetDrive[5]
-            self.config['logger'].debug( 'Target Drive %s' % driveLetter)
+            driveLetter = targetDrive[-2]
+            self.config['logger'].debug( 'Target Drive %s' % targetDrive)
+            self.config['logger'].debug( 'DriveLetter %s' % driveLetter)
 
             self.__process_image( targetDrive ) # TODO process this to determin correct offsets
 
@@ -480,6 +481,7 @@ class TScopy( object ):
                 
                 # Index was not located exit (error message already logged)
                 if table == None:
+                    self.config['logger'].error("File Not Found"  )
                     return
 
                 # Check the mft structure if this is a directory
@@ -674,7 +676,7 @@ class TScopy( object ):
         try:
             self.config['logger'].debug("non_resident %r" % attribute.non_resident() ) 
             if attribute.non_resident() == 0:
-                return attribute.value() 
+                ret = attribute.value() 
             else:
                 cnt = 0
                 padd = False
@@ -742,7 +744,6 @@ class TScopy( object ):
                             a_list.append( entry.baseFileReference() & 0xffffffff   )
                 for next_index in a_list:
                     if mft_file_seq_id == next_index:
-                        self.config['logger'].debug(hex_dump(attribute.value()[:attribute.value_length()]))
                         continue
                     # WARNING RECURSION
                     tmp = self.__parse_file_record( next_index )
@@ -755,7 +756,6 @@ class TScopy( object ):
                 if not file_contents == '':
                     return file_contents
             elif attribute.type() == ATTR_TYPE.DATA:
-#                import pdb; pdb.set_trace()
                 tmp = self.__parse_attribute_data( attribute ) 
                 ret_val[tmp[0]] = tmp[1] 
         if len( ret_val ) > 0:
@@ -785,18 +785,32 @@ class TScopy( object ):
         #        self.config['logger'].debug( "GetFile:: fullpath %s" % fullpath )
         #        self.config['logger'].debug( "GetFile:: attributes %s" % attribute.get_all_string())
                 path = '\\'.join( fullpath.split('\\')[:-1])
-                if not os.path.isdir( path ): 
-                    os.makedirs( path )
+                winapi_path = self.__winapi_path( path )
+                if not os.path.isdir( winapi_path ): 
+                    os.makedirs( winapi_path )
                 if not stream == '':
                     fullpath += "_ADS_%s" % stream 
-                fd2 = open( fullpath,'wb' )
+                self.config['logger'].debug( "GetFile:: fullpath edit %s" % fullpath )
+                self.config['logger'].debug( "GetFile:: file size %d" % len(file_contents[stream]))
+                fd2 = open( self.__winapi_path( fullpath ),'wb' )
                 fd2.write( file_contents[stream] )
             except:
                 self.config['logger'].error('Failed to write file %s\n%s' % (mft_file_object[1], traceback.format_exc() ))
 
     ####################################################################################
+    # __winapi_path: Convert Filepath to Unicode to bypass win32 filepath length limit of 260
+    ####################################################################################
+    def __winapi_path( self, filename, encoding=None ):
+		if (not isinstance(filename, unicode) and encoding is not None):
+			filename = filename.decode(encoding)
+		path = os.path.abspath(filename)
+		if path.startswith(u"\\\\"):
+			return u"\\\\?\\UNC\\" + path[2:]
+		return u"\\\\?\\" + path
+
+
+    ####################################################################################
     # __open: Wrapper around win32file createfile. 
-    #       TODO remove test code.
     ####################################################################################
     def __open( self, filename ):
         fd = None
@@ -817,7 +831,6 @@ class TScopy( object ):
 
     ####################################################################################
     # __read: Wrapper around win32file set file pointer and read contents. 
-    #       TODO remove test code.
     ####################################################################################
     def __read( self, fd, offset, read_sz ):
         buf = ""
@@ -936,6 +949,15 @@ class TScopy( object ):
         return ret
 
             
+    def __get_local_drives(self):
+        """Returns a list containing letters from local drives"""
+        drive_list = win32api.GetLogicalDriveStrings()
+        drive_list = drive_list.split("\x00")[0:-1]  # the last element is ""
+        list_local_drives = []
+        for letter in drive_list:
+            if win32file.GetDriveType(letter) == win32file.DRIVE_FIXED:
+                list_local_drives.append(letter)
+        return list_local_drives
     
     ####################################################################################
     # Copy file from a single source file or directory. Wildcards (*) are acceptable
@@ -958,7 +980,20 @@ class TScopy( object ):
         src_filename = os.path.abspath( src_filename )
         src_filename = [ src_filename ]
         for filename in src_filename: 
-            self.__copyfile( filename, bRecursive=bRecursive )
+            driveLetter = None
+            if self.__useWin32 == True:
+                self.config['logger'].debug( 'filename %r' % filename)
+                if not filename[:4].lower() == '\\\\.\\':
+                    targetDrive = '\\\\.\\'+filename[:2]
+                else:
+                    targetDrive = filename[:6]
+                
+                driveLetter = targetDrive[-2]
+            if driveLetter == '*':
+                for drive in self.__get_local_drives():  
+                    self.__copyfile( filename.replace("*", drive[0], 1), bRecursive=bRecursive )
+            else:
+                self.__copyfile( filename, bRecursive=bRecursive )
 
 
 

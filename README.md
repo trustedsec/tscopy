@@ -1,6 +1,8 @@
 # TScopy
 ![TScopy Logo](/README_imgs/Blog_061120.png)
 
+Updated 2022-01-14
+
 ## Introducing TScopy 
 It is a requirement during an Incident Response (IR) engagement to have the ability to analyze files on the filesystem. Sometimes these files are locked by the operating system (OS) because they are in use, which is particularly frustrating with event logs and registry hives. TScopy allows the user, who is running with administrator privileges, to access locked files by parsing out their raw location in the filesystem and copying them without asking the OS.
 
@@ -98,6 +100,11 @@ For each users copies all jumplists, Registry hives, and Powershell history comm
 Please report bugs in the issues section of the GitHub page.
 
 ## Bug Fixes and Enhancements 
+### Version 3.0
+- Added Support for Alternative Data Stream. Request the root file and the ADS streams are copied
+- WildCard for the drive letter. Fixed Drives only.  Example "\*:\$MFT"  will find the $MFT for all local drives
+- Logging issues. Failed copies are reporting failed again.
+- Filepath size limit of 256 removed.
 ### Version 2.0
 - Issue 1: Change sys.exit to raise Exception
 - Issue 2: The double copying of files. Full name and short name.
@@ -112,5 +119,3 @@ Please report bugs in the issues section of the GitHub page.
 - Changes: Backend restructuring to support new features.
 
 ## TODO:
-1) Add support for Alternate Data Streams (ADS)
-2) Verify support for non-ascii path characters
