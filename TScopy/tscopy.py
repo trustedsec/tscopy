@@ -5,20 +5,16 @@ This project is based off the work from the following projects:
 """
 # TODO: Will have issues with non ascii characters in files names
 # TODO: Currently only processes '\\.\' where RawCopy supported other formats
-import logging
 import sys
 import os
 import re
 import pickle
-import argparse
-import time
 import traceback
-import struct
 
 from math import ceil
-from BinaryParser import Mmap, hex_dump, Block
-from MFT import INDXException, MFTRecord, Attribute, ATTR_TYPE, Attribute_List
-from MFT import StandardInformation,FilenameAttribute, INDEX_ROOT
+from BinaryParser import hex_dump, Block
+from MFT import INDXException, MFTRecord, ATTR_TYPE, Attribute_List
+from MFT import INDEX_ROOT
 
 if os.name == "nt":
     try:
@@ -202,7 +198,6 @@ class TScopy( object ):
     def setPickleDir( self, directory ):
         if not directory == None and not os.path.isdir( directory ):
             self.config['logger'].error("Error pickle destination (%s) not found" % directory)
-            parser.print_help()
             raise Exception( "TSCOPY", "Error pickle destination (%s) not found" % directory)
         self.__pickle_fullpath = '%s%s%s' % ( directory, os.sep, self.__pickle_filename )
         self.__MFT_lookup_table = self.__getLookupTableFromDisk( "c" )
@@ -241,7 +236,7 @@ class TScopy( object ):
             mft_offset = 0x400
 #        win32file.SetFilePointer( fd, mft_offset+(index*bss.mft_record_size ), win32file.FILE_BEGIN)
 #        buf = win32file.ReadFile( fd, bss.mft_record_size )[1]
-        buf = self.__read( fd, mft_offset+(index*bss.mft_record_size ), bss.mft_record_size ) 
+        buf, buf_sz = self.__read( fd, mft_offset+(index*bss.mft_record_size ), bss.mft_record_size )
         record = MFTRecord(buf, 0, None)
         ret = {}
 
@@ -374,8 +369,8 @@ class TScopy( object ):
             for dirs in table['children']:
                 l_table = table['children'][dirs]
                 c_index = l_table['seq_num']
-                buf = self.__calcOffset( c_index )
-                if buf == None or len(buf) == 0:
+                buf, buf_sz = self.__calcOffset( c_index )
+                if buf == None or buf_sz == 0:
                     raise Exception("Failed to process mft_offset")
                 record = MFTRecord(buf, 0, None)
                 if record.is_directory():
@@ -452,7 +447,7 @@ class TScopy( object ):
         self.config['driveLetter'] = driveLetter
         fd = self.__open( targetDrive )
         self.config['fd'] = fd
-        buf = self.__read( fd, 0, 0x200 ) #        buf = win32file.ReadFile( fd, 0x200)[1]
+        buf, buf_sz = self.__read( fd, 0, 0x200 ) #        buf = win32file.ReadFile( fd, 0x200)[1]
         self.config['bss'] = BootSector( buf, 0, self.config['logger'] ) 
         self.config['mft_dataruns'] = self.__getMFT( 0)
         self.__GenRefArray()
@@ -486,8 +481,8 @@ class TScopy( object ):
 
                 # Check the mft structure if this is a directory
                 index = seq_path[-1][0]
-                buf = self.__calcOffset( index )
-                if buf == None or len(buf) == 0:
+                buf, buf_sz = self.__calcOffset( index )
+                if buf == None or buf_sz == 0:
                     raise Exception("Failed to process mft_offset")
                 record = MFTRecord(buf, 0, None)
                 if record.is_directory():
@@ -523,8 +518,8 @@ class TScopy( object ):
         bss = self.config['bss']
         bpc = bss.bytes_per_cluster
 
-        buf = self.__calcOffset( index )
-        if buf == None or len(buf) == 0:
+        buf, buf_sz = self.__calcOffset( index )
+        if buf == None or buf_sz == 0:
             raise Exception("Failed to process mft_offset")
         record = MFTRecord(buf, 0, None)
         if not record.is_directory():
@@ -560,7 +555,7 @@ class TScopy( object ):
             elif attribute.type() == ATTR_TYPE.INDEX_ALLOCATION:
                 for cluster_offset, length  in attribute.runlist().runs():
                     offset=cluster_offset*bpc
-                    buf = self.__read( fd, offset, length*bpc)
+                    buf, buf_sz = self.__read( fd, offset, length*bpc)
                     for cnt in range(length):
                         idx_buf = buf[cnt*bpc:(cnt+2)*bpc]
                         ind = INDX( idx_buf, 0 )
@@ -620,6 +615,7 @@ class TScopy( object ):
                 return None
 
             record = ""
+            record_sz = 0
             for i in srecordArr:
                 if not ',' in i: 
 #                    self.config['logger'].debug('Split:: Could not find ","')
@@ -629,8 +625,10 @@ class TScopy( object ):
                 srSize   = i[ind+1:]
 #                win32file.SetFilePointer( fd, srOffset + image_offset, win32file.FILE_BEGIN)
 #                record += win32file.ReadFile( fd, srSize)[1]
-                record += self.__read( fd, srOffset + image_offset, srSize )
-            return record
+                buf, buf_sz = self.__read( fd, srOffset + image_offset, srSize )
+                record  += buf
+                record_sz += buf_sz
+            return record, record_sz
         else:
             counter = 0
             offset = 0
@@ -659,7 +657,7 @@ class TScopy( object ):
             if self.__useWin32 == False:
                 mft_offset = 0x400 + 0x400*target_seq_num
 #            self.config['logger'].debug('Split:: mft_offset(%r) record_size(%r)' % ( mft_offset, bss.mft_record_size))
-            return self.__read( fd, mft_offset, bss.mft_record_size )
+            return self.__read( fd, mft_offset, bss.mft_record_size)
         return None
 
     ####################################################################################
@@ -668,61 +666,73 @@ class TScopy( object ):
     #       attribute: The data attribute from the MFT record 
     #       Returns the dat content 
     ####################################################################################
-    def __parse_attribute_data( self, attribute ):
+    def __parse_attribute_data( self, attribute, output_name ):
         ret = ''
         fd = self.config['fd']
+        out_name = output_name
         bpc = self.config['bss'].bytes_per_cluster
+        filename = attribute.name()
 #        import pdb; pdf.set_trace()
         try:
-            self.config['logger'].debug("non_resident %r" % attribute.non_resident() ) 
+            self.config['logger'].debug("Attribute File Name %s" % attribute.name())
+            if attribute.name_length() > 0:
+                out_name += "_ADS_%s" % attribute.name()
+            fd_out = open(out_name, "wb")
+            self.config['logger'].debug("non_resident %r" % attribute.non_resident() )
             if attribute.non_resident() == 0:
-                ret = attribute.value() 
+                fd_out.write( attribute.value() )
             else:
                 cnt = 0
                 padd = False
                 for cluster_offset, length in attribute.runlist().runs():
-                    self.config['logger'].debug("GetFile:: cluster_offset( %08x ) lenght( %08x )  " % ( cluster_offset, length))
                     read_sz = length * bpc 
-                    self.config['logger'].debug("readsize %08x cnt %08x init_sz %08x" % ( read_sz, cnt, attribute.initialized_size()))
-                    if read_sz + cnt > attribute.initialized_size():
-                        read_sz = attribute.initialized_size() - cnt
-                        padd = True
-                    if (read_sz % 0x1000) > 0:
-                        read_sz += 0x1000 - (read_sz%0x1000)
-                    offset=cluster_offset * bpc
 
-                    self.config['logger'].debug("readsize %08x cnt %08x init_sz %08x" % ( read_sz, cnt, attribute.initialized_size()))
-                    buf = self.__read( fd, offset, read_sz )
+                    if cluster_offset == 0: ## Sparsed file segment detected
+                        self.config['logger'].debug("parse_attribute_data:: Sparsed file segment detected  length( %08x ) lengthx4096 (%08x)" % ( length, read_sz))
+                        while cnt < read_sz:
+                            chunch_sz = 0x10000
+                            if read_sz-cnt >0x10000:
+                                chunch_sz = read_sz-cnt
+                            fd_out.write("\x00"*chunch_sz)
+                            cnt += chunch_sz
+                    else:
+                        self.config['logger'].debug("GetFile:: cluster_offset( %08x ) length( %08x )  " % ( cluster_offset, length))
+                        self.config['logger'].debug("readsize %08x cnt %08x init_sz %08x" % ( read_sz, cnt, attribute.initialized_size()))
+                        if read_sz + cnt > attribute.initialized_size():
+                            read_sz = attribute.initialized_size() - cnt
+                            padd = True
+                        if (read_sz % 0x1000) > 0:
+                            read_sz += 0x1000 - (read_sz%0x1000)
+                        offset=cluster_offset * bpc
+    
+                        self.config['logger'].debug("readsize %08x cnt %08x init_sz %08x" % ( read_sz, cnt, attribute.initialized_size()))
+                        name = ''
 
-                    if attribute.data_size() < cnt + read_sz:
-                        read_sz = attribute.data_size()-cnt
-                    cnt += read_sz
+                        # Detected ADS
+                        buf, buf_sz = self.__read( fd, offset, read_sz, fd_out )
+    
+                        if attribute.data_size() < cnt + read_sz:
+                            read_sz = attribute.data_size()-cnt
+                        cnt += read_sz
                             
-                    ret += buf[:read_sz]
-                    if padd == True:
-                        padd_sz  = attribute.data_size() - attribute.initialized_size() 
-                        ret += '\x00' * padd_sz
-                        cnt += padd_sz
-                    if cnt > attribute.initialized_size():
-#                        self.config['logger'].debug("readsize %08x cnt %08x init_sz %08x" % ( read_sz, cnt, attribute.initialized_size()))
-                        break
+                        if padd == True:
+                            padd_sz  = attribute.data_size() - attribute.initialized_size()
+                            ret += '\x00' * padd_sz
+                            cnt += padd_sz
+                        if cnt > attribute.initialized_size():
+    #                        self.config['logger'].debug("readsize %08x cnt %08x init_sz %08x" % ( read_sz, cnt, attribute.initialized_size()))
+                            break
         except:
-#            self.config['logger'].error('Failed to get file %s' % (mft_file_object[1] ) )
-            self.config['logger'].error('Failed to get file %s\n%s' % (mft_file_object[1], traceback.format_exc() ))
-        finally:
-            name = ''
-            if attribute.name_length() > 0:
-                name = attribute.name()
-            return [ name, ret ]
+            self.config['logger'].error('Failed to get file %s\n%s' % (filename, traceback.format_exc() ))
 
     ####################################################################################
     # __parse_file_record: Given the sequence ID parse the contents of the file from the 
     #           MFT and return as a string.
     #       mft_file_seq_id: The sequence ID of the MFT record to return the data from
     ####################################################################################
-    def __parse_file_record( self, mft_file_seq_id ):
-        self.config['logger'].debug("parse_fle_record 0x%8x" % mft_file_seq_id)
-        buf = self.__calcOffset( mft_file_seq_id )
+    def __parse_file_record( self, mft_file_seq_id, output_name ):
+        self.config['logger'].debug("parse_fle_record 0x%08x" % mft_file_seq_id)
+        buf, buf_sz = self.__calcOffset( mft_file_seq_id )
         if buf == None:
             raise Exception("Failed to process mft_offset")
 
@@ -746,21 +756,9 @@ class TScopy( object ):
                     if mft_file_seq_id == next_index:
                         continue
                     # WARNING RECURSION
-                    tmp = self.__parse_file_record( next_index )
-                    if tmp == None:
-                        continue
-                    elif type(tmp) == str:
-                        file_contents += tmp
-                    elif '' in tmp: 
-                        file_contents += tmp['']
-                if not file_contents == '':
-                    return file_contents
+                    self.__parse_file_record( next_index, output_name )
             elif attribute.type() == ATTR_TYPE.DATA:
-                tmp = self.__parse_attribute_data( attribute ) 
-                ret_val[tmp[0]] = tmp[1] 
-        if len( ret_val ) > 0:
-            return ret_val
-        return ''
+                self.__parse_attribute_data( attribute, output_name )
 
     ####################################################################################
     # __getFile: The required file was identified this function locates all the parts of 
@@ -768,45 +766,29 @@ class TScopy( object ):
     #       mft_file_object:
     ####################################################################################
     def __getFile( self, mft_file_object ):
-        file_contents = ''
         try:
-            file_contents = self.__parse_file_record( mft_file_object[0] )
-            if file_contents == None:
-                return
-            if type( file_contents ) == str:
-                file_contents = { '': file_contents }
+            fullpath = self.config['outputbasedir'] + self.config['current_file']
+            #        self.config['logger'].debug( "GetFile:: fullpath %s" % fullpath )
+            #        self.config['logger'].debug( "GetFile:: attributes %s" % attribute.get_all_string())
+            path = '\\'.join(fullpath.split('\\')[:-1])
+            winapi_path = self.__winapi_path(path)
+            if not os.path.isdir(winapi_path):
+                os.makedirs(winapi_path)
+            self.config['logger'].debug("GetFile:: fullpath edit %s" % fullpath)
+            self.__parse_file_record( mft_file_object[0], self.__winapi_path(fullpath) )
         except:
             self.config['logger'].error('Failed to get file %s\n%s' % (mft_file_object[1], traceback.format_exc() ))
-
-#        if not file_contents == '':
-        for stream in file_contents:
-            try:
-                fullpath = self.config['outputbasedir'] + self.config['current_file']
-        #        self.config['logger'].debug( "GetFile:: fullpath %s" % fullpath )
-        #        self.config['logger'].debug( "GetFile:: attributes %s" % attribute.get_all_string())
-                path = '\\'.join( fullpath.split('\\')[:-1])
-                winapi_path = self.__winapi_path( path )
-                if not os.path.isdir( winapi_path ): 
-                    os.makedirs( winapi_path )
-                if not stream == '':
-                    fullpath += "_ADS_%s" % stream 
-                self.config['logger'].debug( "GetFile:: fullpath edit %s" % fullpath )
-                self.config['logger'].debug( "GetFile:: file size %d" % len(file_contents[stream]))
-                fd2 = open( self.__winapi_path( fullpath ),'wb' )
-                fd2.write( file_contents[stream] )
-            except:
-                self.config['logger'].error('Failed to write file %s\n%s' % (mft_file_object[1], traceback.format_exc() ))
 
     ####################################################################################
     # __winapi_path: Convert Filepath to Unicode to bypass win32 filepath length limit of 260
     ####################################################################################
     def __winapi_path( self, filename, encoding=None ):
-		if (not isinstance(filename, unicode) and encoding is not None):
-			filename = filename.decode(encoding)
-		path = os.path.abspath(filename)
-		if path.startswith(u"\\\\"):
-			return u"\\\\?\\UNC\\" + path[2:]
-		return u"\\\\?\\" + path
+        if (not isinstance(filename, unicode) and encoding is not None):
+            filename = filename.decode(encoding)
+        path = os.path.abspath(filename)
+        if path.startswith(u"\\\\"):
+            return u"\\\\?\\UNC\\" + path[2:]
+        return u"\\\\?\\" + path
 
 
     ####################################################################################
@@ -830,32 +812,63 @@ class TScopy( object ):
         return fd
 
     ####################################################################################
-    # __read: Wrapper around win32file set file pointer and read contents. 
+    # __read: Wrapper around win32file set file pointer and read contents.
+    #   fd => the handle to the file to be copied
+    #   offset => number of bytes to skip of the file
+    #   read_sz => Number of bytes to read from the file
+    #   fd_output => Default None. If none then read into buffer otherwise
+    #                The handle to the output file
     ####################################################################################
-    def __read( self, fd, offset, read_sz ):
-        buf = ""
+    def __read( self, fd, offset, read_sz, fd_output=None ):
+        bytes_read = 0
+        buf = ''
         try:
             if self.__useWin32 == False:
                 fd.seek( offset, 0)
-                buf = fd.read( read_sz )
-            else:
                 if read_sz > 0x10000000:
-                    tmp_read_sz = 0
                     read_step = 0x01500000
                     buf = ''
-                    while tmp_read_sz <= read_sz:
-                        win32file.SetFilePointer( fd, offset + tmp_read_sz, win32file.FILE_BEGIN)
-                        buf += win32file.ReadFile( fd, read_step)[1]
-                        tmp_read_sz += read_step
+                    while bytes_read <= read_sz:
+                        if not fd_output == None:
+                            fd_output.write(fd.read( read_step ))
+                            bytes_read += read_step
+                        else:
+                            buf += fd.read( read_step )
+                            bytes_read += read_step
+                else:
+                    if not fd_output == None:
+                        fd_output.write(fd.read(read_sz))
+                        bytes_read += read_sz
+                    else:
+                        buf += fd.read(read_sz)
+                        bytes_read += read_sz
+            else:
+                if read_sz > 0x10000000:
+                    read_step = 0x01500000
+                    buf = ''
+                    while bytes_read <= read_sz:
+                        win32file.SetFilePointer( fd, offset + bytes_read, win32file.FILE_BEGIN)
+                        if not fd_output == None:
+                            fd_output.write( win32file.ReadFile( fd, read_step)[1] )
+                            bytes_read += read_step
+                        else:
+                            buf += win32file.ReadFile(fd, read_step)[1]
+                            bytes_read += read_step
                 else:
                     win32file.SetFilePointer( fd, offset, win32file.FILE_BEGIN)
-                    buf = win32file.ReadFile( fd, read_sz)[1]
+                    if not fd_output == None:
+                        buff =  win32file.ReadFile( fd, read_sz)[1]
+                        fd_output.write( buff )
+                        bytes_read = read_sz
+                    else:
+                        buf += win32file.ReadFile( fd, read_sz)[1]
+                        bytes_read = read_sz
         except:
             self.config['logger'].error( traceback.format_exc())
             self.config['logger'].debug("offset(%08x), readsize (%08x) fd (%08x)" % ( offset, read_sz, fd))
             self.config['logger'].debug("stack %s" % traceback.print_stack() )
-        return buf
-        
+        return (buf, bytes_read)
+
     ####################################################################################
     # __get_wildcard_children:  Get the children of the wildcarded directory location
     #       path: is a tuple containing the base path and the wildcard

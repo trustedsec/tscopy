@@ -50,17 +50,17 @@ def unpack_from(fmt, buf, off=0):
         return struct.unpack_from(fmt, buf, 0x0)
 
 
-def unpack(fmt, string):
+def unpack(fmt, buf):
     """
     Like the shimmed unpack_from, but for struct.unpack.
     """
     if isinstance(buf, basestring):
-        return struct.unpack(fmt, string)
+        return struct.unpack(fmt, buf)
     elif not hasattr(buf, "__unpackable__"):
-        return struct.unpack(fmt, string)
+        return struct.unpack(fmt, buf)
     else:
         size = struct.calcsize(fmt)
-        buf = string[:size]
+        buf = buf[:size]
         return struct.unpack(fmt, buf, 0x0)
 
 

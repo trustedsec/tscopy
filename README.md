@@ -1,7 +1,7 @@
 # TScopy
 ![TScopy Logo](/README_imgs/Blog_061120.png)
 
-Updated 2022-01-14
+Updated 2022-03-31
 
 ## Introducing TScopy 
 It is a requirement during an Incident Response (IR) engagement to have the ability to analyze files on the filesystem. Sometimes these files are locked by the operating system (OS) because they are in use, which is particularly frustrating with event logs and registry hives. TScopy allows the user, who is running with administrator privileges, to access locked files by parsing out their raw location in the filesystem and copying them without asking the OS.
@@ -100,6 +100,9 @@ For each users copies all jumplists, Registry hives, and Powershell history comm
 Please report bugs in the issues section of the GitHub page.
 
 ## Bug Fixes and Enhancements 
+### Version 4.0
+- Corrected copying file containing sparsed data. Issue #13 (Error copying c:\$extend\$usnjrnl$j)
+- Files are no longer read into memory before writing to disk. Writes are performed by data run read now. Should reduce memory usage on large files.
 ### Version 3.0
 - Added Support for Alternative Data Stream. Request the root file and the ADS streams are copied
 - WildCard for the drive letter. Fixed Drives only.  Example "\*:\$MFT"  will find the $MFT for all local drives

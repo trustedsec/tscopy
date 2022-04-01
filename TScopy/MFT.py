@@ -1,12 +1,9 @@
 #!/usr/bin/env python
 
 import array
-import os
-import sys
 import struct
 import logging
 from datetime import datetime
-from collections import OrderedDict  # python 2.7 only
 
 from . import BinaryParser
 from BinaryParser import Block
@@ -19,6 +16,7 @@ class INDXException(Exception):
     """
     Base Exception class for INDX parsing.
     """
+
     def __init__(self, value):
         """
         Constructor.
@@ -49,6 +47,7 @@ class FixupBlock(Block):
       - we change the offset for this object from whats passed to the constructor
       - we assume the total object size is no greater than the size of the fixups!
     """
+
     def __init__(self, buf, offset, parent):
         super(FixupBlock, self).__init__(buf, offset)
 
@@ -71,6 +70,8 @@ class FixupBlock(Block):
             self.pack_word(fixup_offset, new_value)
 
             check_value = self.unpack_word(fixup_offset)
+
+
 #            g_logger.debug("Fixup verified at %s and patched from %s to %s.",
 #                          hex(self.offset() + fixup_offset),
 #                          hex(fixup_value), hex(check_value))
@@ -114,6 +115,7 @@ class MFT_INDEX_ENTRY_HEADER(INDEX_ENTRY_HEADER):
     """
     Index used by the MFT for INDX attributes.
     """
+
     def __init__(self, buf, offset, parent):
         super(MFT_INDEX_ENTRY_HEADER, self).__init__(buf, offset, parent)
         self.declare_field("qword", "mft_reference", 0x0)
@@ -123,6 +125,7 @@ class SECURE_INDEX_ENTRY_HEADER(INDEX_ENTRY_HEADER):
     """
     Index used by the $SECURE file indices SII and SDH
     """
+
     def __init__(self, buf, offset, parent):
         super(SECURE_INDEX_ENTRY_HEADER, self).__init__(buf, offset, parent)
         self.declare_field("word", "data_offset", 0x0)
@@ -135,6 +138,7 @@ class INDEX_ENTRY(Block, Nestable):
     NOTE: example structure. See the more specific classes below.
       Probably do not instantiate.
     """
+
     def __init__(self, buf, offset, parent):
         super(INDEX_ENTRY, self).__init__(buf, offset)
         self.declare_field(INDEX_ENTRY_HEADER, "header", 0x0)
@@ -160,6 +164,7 @@ class MFT_INDEX_ENTRY(Block, Nestable):
     """
     Index entry for the MFT directory index $I30, attribute type 0x90.
     """
+
     def __init__(self, buf, offset, parent):
         super(MFT_INDEX_ENTRY, self).__init__(buf, offset)
         self.declare_field(MFT_INDEX_ENTRY_HEADER, "header", 0x0)
@@ -199,6 +204,7 @@ class SII_INDEX_ENTRY(Block, Nestable):
     """
     Index entry for the $SECURE:$SII index.
     """
+
     def __init__(self, buf, offset, parent):
         super(SII_INDEX_ENTRY, self).__init__(buf, offset)
         self.declare_field(SECURE_INDEX_ENTRY_HEADER, "header", 0x0)
@@ -214,13 +220,14 @@ class SII_INDEX_ENTRY(Block, Nestable):
     def is_valid(self):
         # TODO(wb): test
         return 1 < self.header().length() < 0x30 and \
-            1 < self.header().key_lenght() < 0x20
+               1 < self.header().key_lenght() < 0x20
 
 
 class SDH_INDEX_ENTRY(Block, Nestable):
     """
     Index entry for the $SECURE:$SDH index.
     """
+
     def __init__(self, buf, offset, parent):
         super(SDH_INDEX_ENTRY, self).__init__(buf, offset)
         self.declare_field(SECURE_INDEX_ENTRY_HEADER, "header", 0x0)
@@ -237,7 +244,7 @@ class SDH_INDEX_ENTRY(Block, Nestable):
     def is_valid(self):
         # TODO(wb): test
         return 1 < self.header().length() < 0x30 and \
-            1 < self.header().key_lenght() < 0x20
+               1 < self.header().key_lenght() < 0x20
 
 
 class INDEX_HEADER_FLAGS:
@@ -289,7 +296,7 @@ class INDEX(Block, Nestable):
                                 INDEX_ENTRY, "entries")
         slack_start = self.header().entries_offset() + self.header().index_length()
         # TODO: reenable
-        #self.add_explicit_field(slack_start, INDEX_ENTRY, "slack_entries")
+        # self.add_explicit_field(slack_start, INDEX_ENTRY, "slack_entries")
 
     @staticmethod
     def structure_size(buf, offset, parent):
@@ -343,7 +350,7 @@ class INDEX_ROOT(Block, Nestable):
         self.declare_field("dword", "type", 0x0)
         self.declare_field("dword", "collation_rule")
         self.declare_field("dword", "index_record_size_bytes")
-        self.declare_field("byte",  "index_record_size_clusters")
+        self.declare_field("byte", "index_record_size_clusters")
         self.declare_field("byte", "unused1")
         self.declare_field("byte", "unused2")
         self.declare_field("byte", "unused3")
@@ -417,7 +424,7 @@ class IndexRootHeader(Block):
         self.declare_field("dword", "type", 0x0)
         self.declare_field("dword", "collation_rule")
         self.declare_field("dword", "index_record_size_bytes")
-        self.declare_field("byte",  "index_record_size_clusters")
+        self.declare_field("byte", "index_record_size_clusters")
         self.declare_field("byte", "unused1")
         self.declare_field("byte", "unused2")
         self.declare_field("byte", "unused3")
@@ -425,16 +432,16 @@ class IndexRootHeader(Block):
 
     def node_header(self):
         return NTATTR_STANDARD_INDEX_HEADER(self._buf,
-                               self.offset() + self._node_header_offset,
-                               self)
+                                            self.offset() + self._node_header_offset,
+                                            self)
 
 
 class IndexRecordHeader(FixupBlock):
     def __init__(self, buf, offset, parent):
         super(IndexRecordHeader, self).__init__(buf, offset, parent)
         self.declare_field("dword", "magic", 0x0)
-        self.declare_field("word",  "usa_offset")
-        self.declare_field("word",  "usa_count")
+        self.declare_field("word", "usa_offset")
+        self.declare_field("word", "usa_count")
         self.declare_field("qword", "lsn")
         self.declare_field("qword", "vcn")
         self._node_header_offset = self.current_field_offset()
@@ -442,16 +449,16 @@ class IndexRecordHeader(FixupBlock):
 
     def node_header(self):
         return NTATTR_STANDARD_INDEX_HEADER(self._buf,
-                               self.offset() + self._node_header_offset,
-                               self)
+                                            self.offset() + self._node_header_offset,
+                                            self)
 
 
 class INDEX_BLOCK(FixupBlock):
     def __init__(self, buf, offset, parent=None):
         super(INDEX_BLOCK, self).__init__(buf, offset, parent)
         self.declare_field("dword", "magic", 0x0)
-        self.declare_field("word",  "usa_offset")
-        self.declare_field("word",  "usa_count")
+        self.declare_field("word", "usa_offset")
+        self.declare_field("word", "usa_count")
         self.declare_field("qword", "lsn")
         self.declare_field("qword", "vcn")
         self._index_offset = self.current_field_offset()
@@ -546,12 +553,12 @@ class StandardInformation(Block):
         # self.declare_field("qword", "usn")  # Win2k+, NTFS 3.x
 
     # Can't implement this unless we know the NTFS version in use
-    #@staticmethod
-    #def structure_size(buf, offset, parent):
+    # @staticmethod
+    # def structure_size(buf, offset, parent):
     #    return 0x42 + (read_byte(buf, offset + 0x40) * 2)
 
     # Can't implement this unless we know the NTFS version in use
-    #def __len__(self):
+    # def __len__(self):
     #    return 0x42 + (self.filename_length() * 2)
 
     def owner_id(self):
@@ -598,17 +605,19 @@ class StandardInformation(Block):
         except BinaryParser.OverrunBufferException:
             raise StandardInformationFieldDoesNotExist("USN")
 
+
 class Attribute_List(Block, Nestable):
     def __init__(self, buf, offset, size, logger):
         self.__list = []
         csize = 0
         while csize < size:
-            lEntry =  Attribute_List_Entry( buf[csize:], 0, logger ) 
-            self.__list.append( lEntry )
+            lEntry = Attribute_List_Entry(buf[csize:], 0, logger)
+            self.__list.append(lEntry)
             csize += lEntry.record_length()
 
-    def get( self ):
+    def get(self):
         return self.__list
+
 
 class Attribute_List_Entry(Block, Nestable):
     def __init__(self, buf, offset, logger):
@@ -620,10 +629,11 @@ class Attribute_List_Entry(Block, Nestable):
         self.declare_field("qword", "startVCN", 0x8)
         self.declare_field("qword", "baseFileReference", 0x10)
         self.declare_field("word", "attributeID", 0x18)
-        self.declare_field("wstring", "name", 0x1a, 2*self.nameLength())
+        self.declare_field("wstring", "name", 0x1a, 2 * self.nameLength())
 
     def __len__(self):
         return self.size()
+
 
 class FilenameAttribute(Block, Nestable):
     def __init__(self, buf, offset, parent):
@@ -708,6 +718,9 @@ class Runentry(Block, Nestable):
     def is_valid(self):
         return self._offset_length > 0 and self._length_length > 0
 
+    def is_sparsed(self):
+        return self._offset_length == 0
+
     def lsb2num(self, binary):
         count = 0
         ret = 0
@@ -736,6 +749,8 @@ class Runentry(Block, Nestable):
 
     def offset(self):
         # TODO(wb): make this run_offset
+        if self.offset_binary() == "":
+            return 0
         return self.lsb2signednum(self.offset_binary())
 
     def length(self):
@@ -765,9 +780,10 @@ class Runlist(Block):
         ret = []
         offset = self.offset()
         entry = Runentry(self._buf, offset, self)
+
         while entry.header() != 0 and \
-              (not length or offset < self.offset() + length) and \
-              entry.is_valid():
+                (not length or offset < self.offset() + length) and \
+                (entry.is_valid() or entry.is_sparsed()):
             ret.append(entry)
             offset += len(entry)
             entry = Runentry(self._buf, offset, self)
@@ -780,9 +796,12 @@ class Runlist(Block):
         """
         last_offset = 0
         for e in self._entries(length=length):
-            current_offset = last_offset + e.offset()
+            current_offset = 0
+            if not e.offset() == 0:
+                current_offset = last_offset + e.offset()
             current_length = e.length()
-            last_offset = current_offset
+            if not e.offset() == 0:
+                last_offset = current_offset
             yield (current_offset, current_length)
 
 
@@ -833,7 +852,7 @@ class Attribute(Block, Nestable):
         0x4000: "encrypted",
         0x10000000: "has-indx",
         0x20000000: "has-view-index",
-        }
+    }
 
     def __init__(self, buf, offset, parent):
         super(Attribute, self).__init__(buf, offset)
@@ -918,23 +937,23 @@ class MFTRecord(FixupBlock):
         # 0x0 File or BAAD
         self.declare_field("dword", "magic")
         # 0x04 Offset to fixup array
-        self.declare_field("word",  "usa_offset")
+        self.declare_field("word", "usa_offset")
         # 0x06 Number of entries in fixup array
-        self.declare_field("word",  "usa_count")
+        self.declare_field("word", "usa_count")
         # 0x08 $LogFile sequence number
         self.declare_field("qword", "lsn")
         # 0x10 Sequence value
-        self.declare_field("word",  "sequence_number")
+        self.declare_field("word", "sequence_number")
         # 0x12 Link Count
-        self.declare_field("word",  "link_count")
+        self.declare_field("word", "link_count")
         # 0x14 Offset of first attribute
-        self.declare_field("word",  "attrs_offset")
+        self.declare_field("word", "attrs_offset")
         # 0x16 Flags:
         #   0x00 - not in use
         #   0x01 - in use
         #   0x02 - directory
         #   0x03 - directory in use
-        self.declare_field("word",  "flags")
+        self.declare_field("word", "flags")
 
         # 0x18 Used size of MFT entry
         self.declare_field("dword", "bytes_in_use")
@@ -943,17 +962,17 @@ class MFTRecord(FixupBlock):
         # 0x20 File reference to base record
         self.declare_field("qword", "base_mft_record")
         # 0x28 Nex attribute identifier
-        self.declare_field("word",  "next_attr_instance")
+        self.declare_field("word", "next_attr_instance")
 
         # Attributes and fixup values
         # 0x2a
-        self.declare_field("word",  "reserved")
+        self.declare_field("word", "reserved")
         # 0x2c
         self.declare_field("dword", "mft_record_number")
 
         self.inode = inode or self.mft_record_number()
-#        print self.sequence_number()
-#        print self.usa_offset()
+        #        print self.sequence_number()
+        #        print self.usa_offset()
         self.fixup(self.usa_count(), self.usa_offset())
 
     def attributes(self):
@@ -1011,7 +1030,7 @@ class MFTRecord(FixupBlock):
         for check in self.filename_informations():
             try:
                 if check.filename_type() == 0x0001 or \
-                   check.filename_type() == 0x0003:
+                        check.filename_type() == 0x0003:
                     return check
                 fn = check
             except Exception:
@@ -1038,7 +1057,7 @@ class MFTRecord(FixupBlock):
         """
         Returns A binary string containing the MFT record slack.
         """
-        return self._buf[self.offset()+self.bytes_in_use():self.offset() + 1024].tostring()
+        return self._buf[self.offset() + self.bytes_in_use():self.offset() + 1024].tostring()
 
     def active_data(self):
         """
@@ -1076,5 +1095,3 @@ class InvalidRecordException(Exception):
 
     def __str__(self):
         return "InvalidRecordException(%s)" % (self._msg)
-
-
