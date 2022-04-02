@@ -689,12 +689,13 @@ class TScopy( object ):
 
                     if cluster_offset == 0: ## Sparsed file segment detected
                         self.config['logger'].debug("parse_attribute_data:: Sparsed file segment detected  length( %08x ) lengthx4096 (%08x)" % ( length, read_sz))
+                        chunk_sz = 0x1000
+                        chunk = "\x00"*chunk_sz
                         while cnt < read_sz:
-                            chunch_sz = 0x10000
-                            if read_sz-cnt >0x10000:
-                                chunch_sz = read_sz-cnt
-                            fd_out.write("\x00"*chunch_sz)
-                            cnt += chunch_sz
+                            if read_sz-cnt > chunk_sz:
+                                chunk_sz = read_sz-cnt
+                            fd_out.write(chunk[:chunk_sz])
+                            cnt += chunk_sz
                     else:
                         self.config['logger'].debug("GetFile:: cluster_offset( %08x ) length( %08x )  " % ( cluster_offset, length))
                         self.config['logger'].debug("readsize %08x cnt %08x init_sz %08x" % ( read_sz, cnt, attribute.initialized_size()))
