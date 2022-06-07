@@ -1,7 +1,7 @@
 # TScopy
 ![TScopy Logo](/README_imgs/Blog_061120.png)
 
-Updated 2022-03-31
+Updated 2022-06-06
 
 ## Introducing TScopy 
 It is a requirement during an Incident Response (IR) engagement to have the ability to analyze files on the filesystem. Sometimes these files are locked by the operating system (OS) because they are in use, which is particularly frustrating with event logs and registry hives. TScopy allows the user, who is running with administrator privileges, to access locked files by parsing out their raw location in the filesystem and copying them without asking the OS.

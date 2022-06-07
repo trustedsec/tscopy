@@ -12,15 +12,17 @@ import pickle
 import traceback
 
 from math import ceil
-from BinaryParser import hex_dump, Block
-from MFT import INDXException, MFTRecord, ATTR_TYPE, Attribute_List
-from MFT import INDEX_ROOT
+from TScopy.BinaryParser import hex_dump, Block
+from TScopy.MFT import INDXException, MFTRecord, ATTR_TYPE, Attribute_List
+from TScopy.MFT import INDEX_ROOT
+
+os_sep = str.encode(os.sep)
 
 if os.name == "nt":
     try:
         import win32file, win32api, win32con
     except:
-        print "Must have pywin32 installed -- pip install pywin32"
+        print( "Must have pywin32 installed -- pip install pywin32" )
         sys.exit(1)
 
 ####################################################################################
@@ -140,7 +142,7 @@ class TScopy( object ):
         if cls._instance == None:
             cls._instance = super(TScopy, cls).__new__(cls)
             cls.__isConfigured = False
-            cls.__pickle_filename = "mft.pickle"
+            cls.__pickle_filename = b"mft.pickle"
             cls.config = { 'files': None,
                             'pickledir': None,
                             'logger': None,
@@ -199,7 +201,7 @@ class TScopy( object ):
         if not directory == None and not os.path.isdir( directory ):
             self.config['logger'].error("Error pickle destination (%s) not found" % directory)
             raise Exception( "TSCOPY", "Error pickle destination (%s) not found" % directory)
-        self.__pickle_fullpath = '%s%s%s' % ( directory, os.sep, self.__pickle_filename )
+        self.__pickle_fullpath = b'%s%s%s' % ( str.encode(directory), os_sep, self.__pickle_filename )
         self.__MFT_lookup_table = self.__getLookupTableFromDisk( "c" )
         
     ####################################################################################
@@ -321,6 +323,9 @@ class TScopy( object ):
             for seq_num in ret:
                 c_index = seq_num & 0xffffffff
                 c_name = ret[seq_num].lower()
+                if type(c_name ) is str:
+                    c_name = str.encode(c_name)
+                self.config['logger'].debug("search_mft:: c_name %r " % c_name)
                 table['children'][c_name] = { 'name':c_name, 'seq_num':c_index, 'children':{}}
                 if c_name == name.lower():
                     index = c_index
@@ -392,6 +397,9 @@ class TScopy( object ):
             for seq_num in ret: 
                 c_index = seq_num & 0xffffffff
                 c_name = ret[seq_num].lower()
+                if type(c_name) is str:
+                    c_name = str.encode(c_name)
+                self.config['logger'].debug( "copydirfiles :: c_name %r" % (c_name))
                 table['children'][c_name] = { 'name':c_name, 'seq_num':c_index, 'children':{}}
 
                 if ret[seq_num].strip() == '' or seq_num == 0:
@@ -400,11 +408,12 @@ class TScopy( object ):
         tmp_filename = self.config['current_file']
         for name in table['children']:
             seq_num = table['children'][name]['seq_num']
-            self.config['logger'].debug("\tCopying %s to %s" % (fname+os.sep+name, self.config['outputbasedir']+tmp_filename+os.sep+name))
+            self.config['logger'].debug("\tCopying %s to %s" % (name, tmp_filename))
+            self.config['logger'].debug("\tCopying %s to %s" % (fname+os_sep+name, self.config['outputbasedir']+tmp_filename+os_sep+name))
 
-            self.config['current_file'] = fname[2:]+os.sep+name # strip the drive letter off the front
-            if '*' in fname[2:]+os.sep+name:
-                self.config['current_file'] = tmp_filename+os.sep+name # strip the drive letter off the front
+            self.config['current_file'] = fname[2:]+os_sep+name # strip the drive letter off the front
+            if b'*' in fname[2:]+os_sep+name:
+                self.config['current_file'] = tmp_filename+os_sep+name # strip the drive letter off the front
                 
             self.__getFile( [seq_num&0xffffffff, name] )
         return table
@@ -422,8 +431,8 @@ class TScopy( object ):
     def __copyfile( self, filename, mft_filename=None, bRecursive=False ):
         if self.__useWin32 == True:
             self.config['logger'].debug( 'filename %r' % filename)
-            if not filename[:4].lower() == '\\\\.\\':
-                targetDrive = '\\\\.\\'+filename[:2]
+            if not filename[:4].lower() == b'\\\\.\\':
+                targetDrive = b'\\\\.\\'+filename[:2]
             else:
                 targetDrive = filename[:6]
             
@@ -439,9 +448,9 @@ class TScopy( object ):
                 self.__MFT_lookup_table = self.__MFT_lookup_table[driveLetter] = {5:{'seq_num':5,'name':'','children':{}}}
 #            self.config['logger'].debug( 'Target Drive %s' % driveLetter)
         else:
-            self.__MFT_lookup_table = {"c":{5:{'seq_num':5,'name':'','children':{}}}}
+            self.__MFT_lookup_table = {"c":{5:{'seq_num':5,'name':b'','children':{}}}}
             targetDrive = mft_filename
-            driveLetter = "c"
+            driveLetter = b"c"
             self.config['logger'].debug( 'Processing the %s MFT file' % targetDrive )
 
         self.config['driveLetter'] = driveLetter
@@ -458,7 +467,7 @@ class TScopy( object ):
         try:
             # Find the last known directory in the MFT_lookup_table
             seq_path = [(index,None)]
-            tmp_path = fname[3:].split(os.sep)
+            tmp_path = fname[3:].split(os_sep)
             table = self.__MFT_lookup_table[driveLetter][5]
 
             expandedWildCards = self.__process_wildcards( filename, table )
@@ -469,9 +478,9 @@ class TScopy( object ):
 
             
             for cp_file in cp_files:
-                self.config['current_file'] = os.sep.join(cp_file) # strip the drive letter off the front
+                self.config['current_file'] = os_sep.join(cp_file) # strip the drive letter off the front
                 l_fname = fname[:3] + self.config['current_file']
-                self.config['logger'].info("Copying %s to %s" % (l_fname, self.config['outputbasedir']+self.config['current_file']))
+                self.config['logger'].info(b"Copying %s to %s" % (l_fname, self.config['outputbasedir']+self.config['current_file']))
                 table, tmp_path, seq_path = self.__get_file_mft_seqid( cp_file )
                 
                 # Index was not located exit (error message already logged)
@@ -530,10 +539,12 @@ class TScopy( object ):
                 for entry in INDEX_ROOT(attribute.value(), 0).index().entries():
                     refNum = entry.header().mft_reference() & 0xfffffffff
                     if refNum in ret:
-                        if "~" in ret[refNum]:
+                        if b"~" in ret[refNum]:
+                            self.config['logger'].debug( "GetChildIndex:001: entry.filename %r" % entry.filename_information().filename() )
                             ret[refNum] = entry.filename_information().filename()  
                     else:
-                        ret[refNum] = entry.filename_information().filename()  
+                        self.config['logger'].debug( "GetChildIndex:002: entry.filename %r" % entry.filename_information().filename() )
+                        ret[refNum] = str.encode(entry.filename_information().filename())  
             elif attribute.type() == ATTR_TYPE.ATTRIBUTE_LIST:
                 self.config['logger'].debug("ATTRIBUTE_LIST HAS BEEN FOUND 0x(%08x)!!!!" % index )
                 attr_list = Attribute_List(attribute.value(), 0, attribute.value_length(), self.config['logger'] )
@@ -568,10 +579,12 @@ class TScopy( object ):
                                 entry  = INDX_ENTRY( idx_buf, entry_offset )
                                 refNum = entry.mft_recordnum() & 0xfffffffff
                                 if refNum in ret:
-                                    if "~" in ret[refNum]:
-                                        ret[refNum] = entry.filename().replace('\x00','')
+                                    self.config['logger'].debug( "GetChildIndex:: ret[refNum] %r" %(ret[refNum]))
+                                    if b"~" in ret[refNum]:
+                                        ret[refNum] = entry.filename().replace(b'\x00',b'')
                                 else:
-                                    ret[refNum] = entry.filename().replace('\x00','')
+                                    self.config['logger'].debug( "GetChildIndex:003: entry.filename %r" % entry.filename().replace(b'\x00',b''))
+                                    ret[refNum] = entry.filename().replace(b'\x00',b'')
                             except   INDXException:
                                 break
                             except:
@@ -657,7 +670,7 @@ class TScopy( object ):
             if self.__useWin32 == False:
                 mft_offset = 0x400 + 0x400*target_seq_num
 #            self.config['logger'].debug('Split:: mft_offset(%r) record_size(%r)' % ( mft_offset, bss.mft_record_size))
-            return self.__read( fd, mft_offset, bss.mft_record_size)
+            return self.__read( fd, mft_offset, bss.mft_record_size )
         return None
 
     ####################################################################################
@@ -667,7 +680,7 @@ class TScopy( object ):
     #       Returns the dat content 
     ####################################################################################
     def __parse_attribute_data( self, attribute, output_name ):
-        ret = ''
+        ret = b''
         fd = self.config['fd']
         out_name = output_name
         bpc = self.config['bss'].bytes_per_cluster
@@ -676,7 +689,7 @@ class TScopy( object ):
         try:
             self.config['logger'].debug("Attribute File Name %s" % attribute.name())
             if attribute.name_length() > 0:
-                out_name += "_ADS_%s" % attribute.name()
+                out_name += b"_ADS_%s" % attribute.name()
             fd_out = open(out_name, "wb")
             self.config['logger'].debug("non_resident %r" % attribute.non_resident() )
             if attribute.non_resident() == 0:
@@ -690,7 +703,7 @@ class TScopy( object ):
                     if cluster_offset == 0: ## Sparsed file segment detected
                         self.config['logger'].debug("parse_attribute_data:: Sparsed file segment detected  length( %08x ) lengthx4096 (%08x)" % ( length, read_sz))
                         chunk_sz = 0x1000
-                        chunk = "\x00"*chunk_sz
+                        chunk = b"\x00"*chunk_sz
                         while cnt < read_sz:
                             if read_sz-cnt > chunk_sz:
                                 chunk_sz = read_sz-cnt
@@ -718,7 +731,7 @@ class TScopy( object ):
                             
                         if padd == True:
                             padd_sz  = attribute.data_size() - attribute.initialized_size()
-                            ret += '\x00' * padd_sz
+                            ret += b'\x00' * padd_sz
                             cnt += padd_sz
                         if cnt > attribute.initialized_size():
     #                        self.config['logger'].debug("readsize %08x cnt %08x init_sz %08x" % ( read_sz, cnt, attribute.initialized_size()))
@@ -745,7 +758,7 @@ class TScopy( object ):
         for attribute in record.attributes():
             self.config['logger'].debug("Parsing Attribute 0x%2x" % attribute.type() )
             if attribute.type() == ATTR_TYPE.ATTRIBUTE_LIST:
-                file_contents = ''
+                file_contents = b''
                 self.config['logger'].debug("ATTRIBUTE_LIST HAS BEEN FOUND getting the File 0x(%08x)!!!!" % mft_file_seq_id)
                 attr_list = Attribute_List(attribute.value(), 0, attribute.value_length(), self.config['logger'] )
                 a_list = []
@@ -767,11 +780,12 @@ class TScopy( object ):
     #       mft_file_object:
     ####################################################################################
     def __getFile( self, mft_file_object ):
+        file_contents = b''
         try:
             fullpath = self.config['outputbasedir'] + self.config['current_file']
             #        self.config['logger'].debug( "GetFile:: fullpath %s" % fullpath )
             #        self.config['logger'].debug( "GetFile:: attributes %s" % attribute.get_all_string())
-            path = '\\'.join(fullpath.split('\\')[:-1])
+            path = os_sep.join(fullpath.split(os_sep)[:-1])
             winapi_path = self.__winapi_path(path)
             if not os.path.isdir(winapi_path):
                 os.makedirs(winapi_path)
@@ -783,8 +797,8 @@ class TScopy( object ):
     ####################################################################################
     # __winapi_path: Convert Filepath to Unicode to bypass win32 filepath length limit of 260
     ####################################################################################
-    def __winapi_path( self, filename, encoding=None ):
-        if (not isinstance(filename, unicode) and encoding is not None):
+    def __winapi_path( self, filename, encoding='utf-8'):
+        if (not isinstance(filename, str) and encoding is not None):
             filename = filename.decode(encoding)
         path = os.path.abspath(filename)
         if path.startswith(u"\\\\"):
@@ -801,7 +815,8 @@ class TScopy( object ):
             if self.__useWin32 == False:
                 fd = open(filename, 'rb') 
             else:
-                fd = win32file.CreateFile( filename,
+                t_filename = filename.decode("utf-8")
+                fd = win32file.CreateFile( t_filename,
                                 win32file.GENERIC_READ,
                                 win32file.FILE_SHARE_READ | win32file.FILE_SHARE_WRITE,
                                 None, 
@@ -822,13 +837,15 @@ class TScopy( object ):
     ####################################################################################
     def __read( self, fd, offset, read_sz, fd_output=None ):
         bytes_read = 0
-        buf = ''
+        buf = b""
+        if type(offset) == float:
+            offset = int(offset)
         try:
             if self.__useWin32 == False:
                 fd.seek( offset, 0)
                 if read_sz > 0x10000000:
                     read_step = 0x01500000
-                    buf = ''
+                    buf = b''
                     while bytes_read <= read_sz:
                         if not fd_output == None:
                             fd_output.write(fd.read( read_step ))
@@ -846,7 +863,7 @@ class TScopy( object ):
             else:
                 if read_sz > 0x10000000:
                     read_step = 0x01500000
-                    buf = ''
+                    buf = b''
                     while bytes_read <= read_sz:
                         win32file.SetFilePointer( fd, offset + bytes_read, win32file.FILE_BEGIN)
                         if not fd_output == None:
@@ -891,9 +908,9 @@ class TScopy( object ):
             if path[1] == None:
                     break
             l_name = ret[x].lower()
-            l_reg = re.escape(path[1]).replace('\\*', '.*')
-            if not l_reg[-1] == '*':
-                l_reg += '$'
+            l_reg = re.escape(path[1]).replace(b'\\*', b'.*')
+            if not l_reg[-1] == b'*':
+                l_reg += b'$'
             if re.match( l_reg, l_name ):
                 l_name =  path[0] + [ l_name ] 
                 copy_list.append( l_name )
@@ -921,14 +938,14 @@ class TScopy( object ):
     ####################################################################################
     def  __process_wildcards( self, filename, table ):
         filename = filename.lower()
-        if not '*' in filename:
+        if not b'*' in filename:
             return False
         if filename[1:3] == ":\\":
             filename = filename[3:]
         
         index = 5
         seq_path = [(index,None)]
-        tmp_path = filename.split( os.sep )
+        tmp_path = filename.split( os_sep )
         path = []
         path_start = 0
         for ind in range( len(tmp_path)):
@@ -983,12 +1000,14 @@ class TScopy( object ):
     ####################################################################################
     def copy( self, src_filename, dest_filename, bRecursive=False ):
         self.__useWin32 = True
-        if not (dest_filename[-1] == '/' or dest_filename[-1] == '\\'):
-            dest_filename = dest_filename+os.sep
+        if type(dest_filename) == str:
+            dest_filename = str.encode(dest_filename)
+        if not (dest_filename[-1] == b'/' or dest_filename[-1] == b'\\'):
+            dest_filename = dest_filename+os_sep
         self.config['outputbasedir'] = dest_filename 
-        if type(src_filename) == unicode:
-            src_filename = src_filename.encode('ascii', 'ignore')
-        if not type( src_filename ) == str:
+        if type(src_filename) == str:
+            src_filename = str.encode(src_filename)
+        if not type( src_filename ) == bytes:
             self.config['logger'].error("INVALID src type (%r)" % (src_filename ) )
             return
         src_filename = os.path.abspath( src_filename )
@@ -996,16 +1015,16 @@ class TScopy( object ):
         for filename in src_filename: 
             driveLetter = None
             if self.__useWin32 == True:
-                self.config['logger'].debug( 'filename %r' % filename)
-                if not filename[:4].lower() == '\\\\.\\':
-                    targetDrive = '\\\\.\\'+filename[:2]
+                self.config['logger'].debug( 'filename %r %r' % (type(filename),filename))
+                if not filename[:4].lower() == b'\\\\.\\':
+                    targetDrive = b'\\\\.\\'+filename[:2]
                 else:
                     targetDrive = filename[:6]
                 
                 driveLetter = targetDrive[-2]
             if driveLetter == '*':
                 for drive in self.__get_local_drives():  
-                    self.__copyfile( filename.replace("*", drive[0], 1), bRecursive=bRecursive )
+                    self.__copyfile( filename.replace(b"*", drive[0], 1), bRecursive=bRecursive )
             else:
                 self.__copyfile( filename, bRecursive=bRecursive )
 

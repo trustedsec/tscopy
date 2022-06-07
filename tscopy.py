@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 """
 This project is based off the work from the following projects:
@@ -28,7 +28,7 @@ log.addHandler(handler)
 def check_administrative_rights( ):
     if ctypes.windll.shell32.IsUserAnAdmin() == 0:
         log.info("TrustedIR Collector must run with administrative privileges")
-        print "ERROR: TrustedIR Collector must run with administrative privileges\nPress ENTER to finish..."
+        print( "ERROR: TrustedIR Collector must run with administrative privileges\nPress ENTER to finish..." )
         sys.stdin.readline()
         return False
     return True

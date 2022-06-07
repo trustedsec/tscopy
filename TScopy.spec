@@ -7,10 +7,11 @@ operating_sys = platform.system()
 # Computing binary name
 suffix = ""
 if operating_sys == "Windows":
-	if sys.maxsize > 2**32:
-		suffix='_x64.exe'
-	else:
-		suffix= '_x86.exe'
+    suffix += '_py%d' % sys.version_info.major
+    if sys.maxsize > 2**32:
+        suffix += '_x64.exe'
+    else:
+        suffix += '_x86.exe'
 
 binary_name = "TScopy" + suffix
 block_cipher = None
@@ -20,7 +21,7 @@ a = Analysis(['tscopy.py'],
              pathex=['Z:\\'],
              binaries=[],
              datas=[],
-             hiddenimports=[],
+             hiddenimports=['six'],
              hookspath=[],
              runtime_hooks=[],
              excludes=[],
