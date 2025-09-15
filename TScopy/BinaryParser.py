@@ -37,9 +37,9 @@ def hex_dump(src, start_addr=0):
       data is interpreted as starting at this offset, and
       the offset column is updated accordingly.
     """
-    FILTER = ''.join([(len(repr(chr(x))) == 3) and
-                        chr(x) or
-                        '.' for x in range(256)])
+    FILTER = b''.join([(len(repr(chr(x))) == 3) and
+                        x.to_bytes(1,'big') or
+                        b'.' for x in range(256)])
     length = 16
     result = []
 
@@ -50,9 +50,9 @@ def hex_dump(src, start_addr=0):
         num_spaces = (start_addr % length)
         num_chars = length - (start_addr % length)
 
-        spaces = " ".join(["  " for i in xrange(num_spaces)])
+        spaces = " ".join(["  " for i in range(num_spaces)])
         s = src[0:num_chars]
-        hexa = ' '.join(["%02X" % ord(x) for x in s])
+        hexa = ' '.join(["%02X" % x for x in s])
         printable = s.translate(FILTER)
 
         result.append("%04X   %s %s   %s%s\n" %
@@ -64,7 +64,7 @@ def hex_dump(src, start_addr=0):
 
     for i in xrange(0, len(src), length):
         s = src[i:i + length]
-        hexa = ' '.join(["%02X" % ord(x) for x in s])
+        hexa = ' '.join(["%02X" % x for x in s])
         printable = s.translate(FILTER)
         result.append("%04X   %-*s   %s\n" %
                          (remainder_start_addr + i, length * 3,
